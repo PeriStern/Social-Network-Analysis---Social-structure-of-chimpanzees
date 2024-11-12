@@ -1,0 +1,433 @@
+---
+title: "Lab report"
+output: word_document
+date: "2023-07-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Initial summaries and plots - EDA
+
+We will begin by loading our data sets in R:
+
+```{r}
+attributes<- read.csv('attributes.csv')
+edges<-read.csv('edges.csv')
+head(attributes)
+head(edges)
+```
+
+As we can see, the attributes data set gives us information about each of the nodes (these nodes are indexed), such as the chimpanzees age, gender and preferred sleeping location. The edges data set lists for each node, all the nodes it is connected to. Since it is a directed graph, the connection is from V1 to V2. 
+
+We will now set up the network of our matrix: 
+```{r}
+matrix<- as.matrix(edges)
+library(statnet)
+net1<- network(matrix, matrix.type='edgelist')
+#summary(network)
+#add gender information
+network::set.vertex.attribute(net1, "Gender",attributes$Gender)
+network::set.vertex.attribute(net1, "SleepLoc",attributes$SleepLoc)
+network::set.vertex.attribute(net1, "Age",attributes$Age)
+```
+
+We will now visualize our network:
+```{r}
+#convert to igraph
+library(intergraph)
+inet1<-asIgraph(net1)
+#colour according to gender
+transp<- function(col, alpha=0.5){
+  res<- apply(col2rgb(col), 2, function(c) rgb(c[1]/255,c[2]/255,c[3]/255, alpha))
+  return(res)
+}
+Fcolor<- transp('pink', alpha=0.5)
+Mcolor<- transp('blue', alpha=0.5)
+V(inet1)$color<- V(inet1)$Gender
+V(inet1)$color<- gsub('Female', Fcolor, V(inet1)$color)
+V(inet1)$color<- gsub('Male', Mcolor, V(inet1)$color)
+#shape according to age
+V(inet1)$shape<- NA
+V(inet1)$shape<- ifelse(V(inet1)$Age=='young', 'circle', 'tomatoe')
+V(inet1)$shape<- ifelse(V(inet1)$Age=='elderly', 'square', V(inet1)$shape)
+V(inet1)$shape<- ifelse(V(inet1)$Age=='middle-aged', 'rectangle', V(inet1)$shape)
+
+plot(inet1, vertex.size=8, arrowhead.cex=0.5, edge.lty=1,edge.width=0.5, edge.color="black",  edge.arrow.size=0.3, vertex.label=NA, vertex.shape=V(inet1)$shape)
+
+```
+We have edited this visualization so the color represents the gender (blue=male, pink=female) and the shape represents the age (circle=young, rectangle=middle-aged, square=elderly).
+
+We can see that there are 4 main segregated communities. It seems as though genders and ages are entirely separated.  
+
+
+We will now perform explanatory data analysis on the attributes of the chimpanzees. 
+
+```{r}
+summary(attributes)
+library(ggplot2)
+#library(cowplot)
+library(gridExtra)
+library(dplyr)
+library(cowplot)
+#library(dplyr)
+one<- ggplot(attributes, aes(x=Gender, fill=SleepLoc)) +
+  geom_bar(stat="count", position = "dodge") 
+two<-ggplot(attributes, aes(x=Age, fill=SleepLoc)) +
+  geom_bar(stat="count", position = "dodge") 
+three<-ggplot(attributes, aes(x=Age, fill=Gender)) +
+  geom_bar(stat="count", position = "dodge") 
+plot_grid(one, two, three,ncol = 2, nrow = 2)
+
+
+```
+There are 138 chimpanzees in total. From the Bar charts, it is shown that all the elderly chimpanzees are female, all the young are male and the middle aged are approximately evenly divided. There is approximately an even number of Male and Female chimpanzees in total and an even spread in location 1 and 2. majority of the chimpanzees are middle aged. 
+
+```{r}
+prop.table(table(attributes$Age))
+prop.table(table(attributes$Gender))
+prop.table(table(attributes$SleepLoc))
+```
+These proportions further summarize information. There is an even distribution of the gender and the location preferences. There is double the number of middle aged chimpanzees compared to the number of elderly and young. 
+
+Check for missing data:
+```{r}
+attributes[!complete.cases(attributes), ]
+```
+No missing data. 
+
+We will now examine various measures of the network. 
+
+Density: 
+```{r}
+network.density(net1)
+```
+The density of a graph is represents how many edges are observed versus how many edges are possible. In this graph, 0.14% of the the possible number of connection are connected.
+
+Reciprocity:
+```{r}
+grecip(net1, measure = "dyadic.nonnull")
+```
+The reciprocity of a graph measures the proportion of times a tie is reciprocated (an edge connected on both edges). This means that 23.3% of the ties are reciprocated. This means that 23.3% of the chimpanzees that a chimpanzees grooms another chimpanzees is reciprocated.
+
+Diameter:
+```{r}
+max(geodist(net1)$gdist)
+```
+This means that in any case, it takes at maximum 4 steps to get from one chimpanzee to another. 
+
+Transitivity:
+
+This is a measure of the tendency for three nodes to to be fully connected (forming a triangle). 
+```{r}
+suppressWarnings(gtrans(net1, mode="weak"))
+suppressWarnings(gtrans(net1, mode="strong"))
+```
+This means that 31.65% of the chimpanzees with at least two ties between them will have the third tie. 
+
+Cliques:
+
+A clique is a sub graph which has a density of 1 - all nodes in that graph are maximum connected. 
+```{r}
+library(igraph)
+library(intergraph)
+igraph::clique.number(asIgraph(net1))
+#igraph::cliques(asIgraph(net1))
+
+```
+We can create a sub graph where at most 10 chimpanzees are fully connected. The second command can be run to identify these cliques. 
+
+Node Degree:
+
+It is useful to asses if there are any nodes that hold particular importance on the network. In-degree is the number of edges leading into a node and out-degree as the number of edges leading out of a node. 
+```{r}
+in.degree<-sna::degree(net1,cmode="indegree")
+out.degree<-sna::degree(net1,cmode="outdegree")
+```
+This lists the in-degree and out-degree of each chimpanzee. 
+As there are many chimpanzees in this list, we can represent this information in a histogram.
+```{r}
+hist(in.degree)
+hist(out.degree)
+```
+The distributions of both of these histograms are normal, many chimpanzees have a in and out degree of 20. This is further supported by the summary statistics below. 
+
+```{r}
+summary(in.degree)
+summary(out.degree)
+```
+It seems that every chimpanzee has at least 12 and at most 29 inward connections and at least 10 and at most 31 outward connections. 
+```{r}
+order(in.degree, decreasing = TRUE)[1:5]
+order(out.degree, decreasing = TRUE)[1:5]
+```
+Chimpanzee 8 has the most inward connection - the most frequently groomed chimpanzee while chimpanzee 54 has the most outward connection - it grooms the most. 
+
+Centrality: 
+
+
+Centrality refers to a particular chimpanzee which holds importance in the network. 
+We will first assess the closeness centrality. This measures how close each node is to all other nodes in the graph.
+```{r}
+cent<- sna::closeness(net1, gmode = "digraph")
+max(sna::closeness(net1, gmode = "digraph"))
+order(cent, decreasing = TRUE)[1:5]
+```
+The large numbers represent a chimpanzee that is close to many other chimpanzees whereas small numbers represent chimpanzees that are far away from most other chimpanzees. We can see that chimpanzee 126 has a high closeness centrality of 0.539.
+
+Betweenness centrality:
+Betweenness measures how important a node is in getting from one node to another node. 
+```{r}
+cent2<-sna::betweenness(net1, cmode="directed")
+max(cent2)
+order(cent2, decreasing = TRUE)[1:5]
+```
+Once again, chimpanzee 126 has the highest betweenness centrality. This means that if 126 was removed from the network, chimpanzees will not have as much access to each other. 
+
+Assortativity:
+
+We will now evaluate if there are trends that can be drawn between the characteristics of the chimpanzees to explain why certain chimpanzees are well connected. If a graph is very assortive, we expect that all pairs of nodes with similar characteristics have a high connection between them. When there is perfect assortative mixing, the index will be 1 and will be close to -1 when it is disassortative. 
+```{r}
+gend<- as.factor(attributes$Gender)
+assortativity_nominal(asIgraph(net1), gend)
+```
+This is very close to 1 which suggests that chimpanzees of similar genders are more likely to possess ties. 
+```{r}
+age<- as.factor(attributes$Age)
+assortativity_nominal(asIgraph(net1), age)
+sleep<- as.factor(attributes$SleepLoc)
+assortativity_nominal(asIgraph(net1), sleep)
+```
+The high positive value for age suggest that chimpanzees of similar age are more likely to be connected. The close to zero value for sleeping location suggests that the connections are not connected to the preferred sleeping location of the chimpanzees. Chimpanzees will connect to those in the same and different preferred sleeping location
+
+## ERGM analysis
+
+We will now attempt to understand the network statistically, using ERGM analysis. 
+
+In the null model, we are interested in the density of the graph which is essentially the number of edges. 
+```{r}
+library(ergm)
+model1<-ergm(net1 ~ edges, control=control.ergm(seed=101))
+summary(model1)
+plogis(coef(model1))
+#compare to the density
+network.density(net1)
+#graph density 
+exp(-1.79863)/(1+exp(-1.79863))
+```
+This model has produced the graph density. The probability of any tie existing in the entire network is 0.142. 
+
+Now we will assess the mutual model:
+```{r}
+model1.01<- ergm(net1~mutual + edges)
+summary(model1.01)
+```
+Here, the number of mutual (reciprocated) ties is compared to a generated random networks with the same density. The effect is positive and significant indicating there are more mutual links in our network than what one would expect from a random network of with the same number of edges. 
+In the context of the chimpanzees, this means that more often than expected, chimpanzees will reciprocate if groomed by another chimpanzee. 
+
+Now we will look beyond the null model and look at the covariates.
+We will first assess the correlation between each of the variables and the the degree of the node. 
+```{r}
+model2<-ergm(net1~edges+mutual+nodefactor("SleepLoc")+nodefactor("Gender")+nodefactor("Age"),control=control.ergm(seed=404))
+summary(model2)
+```
+These coefficients are insignificant. Ignoring the significance, the negative sleeping location coefficient suggests that sleeping location 2 is less likely to form ties than the chimpanzees who prefer sleeping location 1. The positive male coefficient suggests that males are more likely to form ties than females (although this difference is very small). The negative coefficients for middle aged and young chimpanzees suggest that elderly chimpanzees are more likely to form ties that the other ages. Again, this difference is very small. 
+
+We will now assess the ties formed between different combinations in our network.  
+```{r}
+mixingmatrix(net1,'Gender')
+mixingmatrix(net1,'Age')
+mixingmatrix(net1,'SleepLoc')
+```
+From this output, we can see that there are ties with each combination within a class. Specifically, there are very few ties between young and old chimpanzees and many ties between middle aged chimpanzees. This is in line with the explanatory analysis we did above. There are also more ties of the same gender than of different. 
+
+```{r}
+model3<-ergm(net1~edges+mutual+nodematch("SleepLoc")+nodematch("Gender")+nodematch("Age"),control=control.ergm(seed=404))
+summary(model3)
+```
+Examining the full model with all variables included, mutual and sleeping location is insignificant. The coefficients of gender and age are positive which suggest that chimpanzees are more likely to have a tie if their age and gender match.
+
+We will now drop the non significant term and create a new model:
+```{r}
+model4<-ergm(net1~edges+nodematch("Gender")+nodematch("Age"),control=control.ergm(seed=404))
+summary(model4)
+```
+The good news is that our terms are still significant and positive. 
+
+As the terms are significant, we can investigated to see if there is evidence of differential homophily at different levels of the factors.
+
+```{r}
+model4.1<-ergm(net1~edges+nodematch("Gender",diff=TRUE)+nodematch("Age",diff=TRUE),
+             control=control.ergm(seed=404))
+summary(model4.1)
+```
+The coefficients are positive and significant so we can conclude that chimpanzees are likely to have a connection between nodes of the same age and gender groups.
+
+To test the ties between the different combinations of categories: 
+```{r}
+model4.2<-ergm(net1~edges+nodemix("Gender",base=1)+nodemix("Age",base=1), control=control.ergm(seed=404))
+summary(model4.2)
+```
+All the terms are significant (aside for the term comparing that of the same category). From the significant coefficients, we can see that opposite genders are less likely to attract and opposite ages are also less likely to attract.
+
+Now that we established the model, we can check the fit of the model:
+```{r}
+gof.model4<-gof(model4)
+par(mfrow=c(4,1),cex=0.85, mgp=c(0.95,0.2,0), mai=c(0.325,0.45,0.325,0.05), bty="L")
+plot(gof.model4)
+```
+The minimum geodesic distance and edgewise shared partner plots show the observed line roughly in the middle of all box plots which is good. The model statistic line does deviate from the box plots a little. There is also some deviation in the in degree and out degree plots. Overall, this can be considered a good fit. 
+
+In conclusion, we have discovered that the chimpanzees are likely to be connected with those of the same gender and the same age group. We were not able to make any inference between the preferred sleeping location. This suggests that these chimpanzees are likely to find same-sex grooming partners. 
+
+## Community detection and Stochastic block model (SBM) 
+
+1. Modularity based community detection
+
+We will fit a Edge-betweenness cluster detection as our graph is directed. We will have to us the package igraph.
+```{r}
+#convert to igraph
+library(intergraph)
+inet1<-asIgraph(net1)
+# Perform Community detection
+cs <- igraph::cluster_edge_betweenness(inet1)
+plot(cs, inet1, vertex.size=8, arrowhead.cex=0.5, edge.lty=1,edge.width=0.5, edge.color="black",  edge.arrow.size=0.3, vertex.label=NA, vertex.shape=V(inet1)$shape)
+```
+It is clear that there are 4 clusters with a chain affect. 
+
+```{r}
+mod.edge.between <- modularity(inet1, igraph::membership(cs))
+mod.edge.between
+cs$membership
+# Percentage in each class
+prop.table(table(cs$membership))
+```
+The modularity of this graph is 0.53. This demonstrates a good strength of community within these communities. Chimpanzees withing a community are very closely connected. The 4 groups are evenly distributed with an equal number of chimpanzees in each class. 
+
+Or, when using a different algorithm,
+```{r}
+cs2<- igraph::cluster_infomap(inet1)
+plot(cs2, inet1, vertex.size=8, arrowhead.cex=0.5, edge.lty=1,edge.width=0.5, edge.color="black",  edge.arrow.size=0.3, vertex.label=NA, vertex.shape=V(inet1)$shape)
+modularity(inet1, igraph::membership(cs2))
+cs2$membership
+table(cs2$membership)
+# Percentage in each class
+prop.table(table(cs2$membership))
+```
+We get the identical modularity. 
+
+We will now examine the 4 groups to see if the attributes are related. 
+```{r}
+data<- cbind(attributes, cs$membership)
+data%>%filter(cs$membership==1)
+data%>%filter(cs$membership==2)
+data%>%filter(cs$membership==3)
+data%>%filter(cs$membership==4)
+```
+The first cluster consists only young males. 
+The second cluster consists of only middle-aged males.
+The third cluster consists of only middle-aged females.
+The fourth cluster consists of only elderly females.
+For all of these groups, there are chimpanzees from both prefered sleeping location. 
+
+
+2. Stochastic block model (SBM). 
+```{r}
+#convert edge list graph to adjacency matrix
+library(igraph)
+graph.data.frame(edges)
+edj.matrix<-get.adjacency(graph.data.frame(edges), sparse=FALSE)
+
+library(blockmodels)
+sbm.mod<-BM_bernoulli("SBM",as.matrix(edj.matrix))
+
+sbm.mod$estimate()
+sbm.mod$ICL
+which.max(sbm.mod$ICL)
+```
+We have already seen from the Modularity based community detection that 4 clusters is optimal. 
+
+```{r}
+#model parameters
+sbm.mod$model_parameters[[4]]
+#membership probabilities
+sbm.mod$memberships[[4]]$Z
+#which class deos each chimpanzee belong to.
+class.member<-apply(sbm.mod$memberships[[4]]$Z,1,which.max)
+class.member
+#plot membership probabilities
+sbm.mod$memberships[[4]]$plot()
+#observed ties Vs predicted ties
+sbm.mod$plot_obs_pred(4)
+sbm.mod$plot_parameters(4)
+```
+The membership plot gives us 4 equal classes with equal probabitiles for each class. 
+
+The next plot shows the actual connections. 
+The third plot shows probability of connection. As we can see, the probabilities are very equal suggesting that the model fits the data well. 
+The model parameters plot also show the chimpanzees are spread evenly across the 4 classes. 
+
+Evaluating the class memberships distribution:
+```{r}
+class.member<-apply(sbm.mod$memberships[[4]]$Z,1,which.max)
+table(class.member)
+# Percentage in each class
+prop.table(table(class.member))
+```
+The proportion of chimpanzees in each class is approximately equal. 
+The plots produced similarly demonstrated that the chimpanzees are spread equally between all classes. 
+
+
+We will now assess how the groups created compare with the covariates. 
+First, we will attach the class member to the data set. 
+```{r}
+data2<- cbind(attributes, class.member)
+group1<- data2%>%filter(class.member==1)
+group2<-data2%>%filter(class.member==2)
+group3<-data2%>%filter(class.member==3)
+group4<-data2%>%filter(class.member==4)
+table(group1$Age, group1$Gender)
+table(group2$Age, group2$Gender)
+table(group3$Age, group3$Gender)
+table(group4$Age, group4$Gender)
+table(group1$SleepLoc)
+table(group2$SleepLoc)
+table(group3$SleepLoc)
+table(group4$SleepLoc)
+
+```
+The first group is entirely female and middle aged
+the second group is entirely male and middle aged
+the third group is entirely female and elderly
+the fourth group is entirely male and young. 
+
+The sleeping location has no affect on the groups. 
+
+All this information matched exactly in line with what we disused throughout this analysis. Chimpanzees from the same gender and age will be more likely to stick with each other. However, the preferred sleeping location had no affect of the grooming of the chimpanzees.
+
+We will now compare the community structures of the Modularity based community detection and the Stochastic block model (SBM).
+
+```{r}
+table(cs$membership , class.member)
+```
+This table shows the number of chimpanzees who allocated in each class for both the methods. As we cal see, all 35 chimpanzees who were allocated to be in class 1 for Modularity were in class 4 for SBM. It is clear that both methods allocated the groups in exactly the same way, only the title of the groups were different. 
+
+Now we can compute similarity measures:
+```{r}
+chisq.test(table(cs$membership , class.member))
+```
+The P value is significant. 
+
+Next, we can explore the Adjusted Rand method: 
+```{r}
+print(c('Adjusted Rand',compare(cs$membership,class.member,method="adjusted.rand")))
+```
+As this result is 1 (as expected), we can conclude that the results from the two statistics are identical. 
+
+As the two results are identical, we know that this is the best way to cluster these chimpanzees. 
+
+
+
+
+MEASURE DENSITY AND RECIPRICOTY OF THE COMMUNITIES TO SEE IF THEY ARE FULL
